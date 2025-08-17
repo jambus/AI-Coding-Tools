@@ -1,0 +1,100 @@
+package com.jambus.wikihelper.ui.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.jambus.wikihelper.data.model.KnowledgeDocument
+import com.jambus.wikihelper.data.repository.KnowledgeRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class KnowledgeViewModel @Inject constructor(
+    private val knowledgeRepository: KnowledgeRepository
+) : ViewModel() {
+    
+    data class KnowledgeUiState(
+        val documents: List<KnowledgeDocument> = emptyList(),
+        val isLoading: Boolean = false,
+        val error: String? = null,
+        val searchQuery: String = "",
+        val selectedDepartment: String = "全部",
+        val selectedType: String = "全部"
+    )
+    
+    private val _uiState = MutableStateFlow(KnowledgeUiState())
+    val uiState: StateFlow<KnowledgeUiState> = _uiState.asStateFlow()
+    
+    init {
+        loadDocuments()
+    }
+    
+    private fun loadDocuments() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            
+            try {
+                knowledgeRepository.getAllDocuments()
+                    .collect { documents ->
+                        _uiState.value = _uiState.value.copy(
+                            documents = documents,
+                            isLoading = false
+                        )
+                    }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    error = "加载文档失败: ${e.message}",
+                    isLoading = false
+                )
+            }
+        }
+    }
+    
+    fun searchDocuments(query: String) {
+        _uiState.value = _uiState.value.copy(searchQuery = query)
+        
+        viewModelScope.launch {
+            knowledgeRepository.searchDocuments(query)
+                .collect { documents ->
+                    _uiState.value = _uiState.value.copy(
+                        documents = documents
+                    )
+                }
+        }
+    }
+    
+    fun filterByDepartment(department: String) {
+        _uiState.value = _uiState.value.copy(selectedDepartment = department)
+        
+        viewModelScope.launch {
+            knowledgeRepository.filterByDepartment(department)
+                .collect { documents ->
+                    _uiState.value = _uiState.value.copy(
+                        documents = documents
+                    )
+                }
+        }
+    }
+    
+    fun filterByType(type: String) {
+        _uiState.value = _uiState.value.copy(selectedType = type)
+        
+        viewModelScope.launch {
+            knowledgeRepository.filterByType(type)
+                .collect { documents ->
+                    _uiState.value = _uiState.value.copy(
+                        documents = documents
+                    )
+                }
+        }
+    }
+    
+    fun refreshDocuments() {
+        loadDocuments()
+    }
+    
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(error = null)
+    }
+}

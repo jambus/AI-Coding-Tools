@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.jambus.wikihelper.data.local.database.WikiHelperDatabase
 import com.jambus.wikihelper.data.repository.ChatRepository
-import com.jambus.wikihelper.data.repository.DifyRepository
+import com.jambus.wikihelper.data.repository.KnowledgeRepository
 import com.jambus.wikihelper.data.security.SecurityManager
 import com.jambus.wikihelper.data.local.dao.ChatDao
 import dagger.Module
@@ -41,4 +41,8 @@ object AppModule {
     fun provideChatRepository(
         chatDao: ChatDao
     ) = ChatRepository(chatDao)
+
+    @Provides
+    @Singleton
+    fun provideKnowledgeRepository() = KnowledgeRepository()
 }
