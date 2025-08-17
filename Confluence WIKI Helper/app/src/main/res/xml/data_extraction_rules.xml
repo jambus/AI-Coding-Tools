@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Sample data extraction rules file; uncomment and customize as needed.
+   See https://developer.android.com/about/versions/12/backup-restore for details.
+-->
+<data-extraction-rules>
+    <locale-config>
+        <locale-filter-set>
+            <locale>en_US</locale>
+            <locale>en</locale>
+        </locale-filter-set>
+    </locale-config>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="secure_prefs.xml" />
+        <exclude domain="sharedpref" path="dify_api_key" />
+    </cloud-backup>
+</data-extraction-rules>
