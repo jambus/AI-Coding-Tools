@@ -22,7 +22,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = DecathlonBlue,
+    primary = DECABlue,
     secondary = PurpleGrey40,
     tertiary = Pink40
 )

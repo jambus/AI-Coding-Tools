@@ -21,7 +21,7 @@
 #-renamesourcefileattribute SourceFile
 
 # Retrofit
--keep class com.decathlon.wikihelper.data.remote.model.** { *; }
+-keep class com.jambus.wikihelper.data.remote.model.** { *; }
 -keep class retrofit2.** { *; }
 -keepattributes Signature
 -keepattributes Exceptions
@@ -34,7 +34,7 @@
 
 # Room
 -keep class androidx.room.** { *; }
--keep class com.decathlon.wikihelper.data.local.entity.** { *; }
+-keep class com.jambus.wikihelper.data.local.entity.** { *; }
 
 # Hilt
 -keep class dagger.hilt.** { *; }
