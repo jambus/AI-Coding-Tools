@@ -41,10 +41,4 @@ object AppModule {
     fun provideChatRepository(
         chatDao: ChatDao
     ) = ChatRepository(chatDao)
-
-    @Provides
-    @Singleton
-    fun provideDifyRepository(
-        difyRepository: DifyRepository
-    ) = difyRepository
 }

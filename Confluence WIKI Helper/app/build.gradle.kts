@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("kotlin-kapt")
+    id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.10"
 }
@@ -39,20 +39,6 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-    
-    kapt {
-        correctErrorTypes = true
-        javacOptions {
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED")
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED")
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED")
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED")
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED")
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED")
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED")
-            option("--add-opens", "jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED")
-        }
-    }
     buildFeatures {
         compose = true
     }
@@ -60,7 +46,7 @@ android {
         kotlinCompilerExtensionVersion = "1.5.3"
     }
     
-    packagingOptions {
+    packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -85,13 +71,13 @@ dependencies {
     
     // Hilt
     implementation("com.google.dagger:hilt-android:2.48")
-    kapt("com.google.dagger:hilt-compiler:2.48")
+    ksp("com.google.dagger:hilt-compiler:2.48")
     implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
     
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
-    kapt("androidx.room:room-compiler:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
     
     // Security
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
