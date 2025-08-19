@@ -640,11 +640,25 @@ fun TypewriterText(
 ) {
     var displayedText by remember { mutableStateOf("") }
     
+    // 当目标文本改变时，启动平滑的追加动画
     LaunchedEffect(text) {
-        displayedText = ""
-        text.forEachIndexed { index, _ ->
-            delay(30) // 30ms/字符，符合需求
-            displayedText = text.substring(0, index + 1)
+        // 如果新文本比当前显示的文本长，就逐字追加新内容
+        if (text.length > displayedText.length) {
+            // 从当前显示长度开始，逐字显示到目标长度
+            for (i in displayedText.length until text.length) {
+                delay(25) // 25ms/字符，更加流畅
+                displayedText = text.substring(0, i + 1)
+            }
+        } else if (text.length < displayedText.length || displayedText.isEmpty()) {
+            // 新消息开始，重置并重新打字
+            displayedText = ""
+            for (i in text.indices) {
+                delay(25) // 保持一致的延迟
+                displayedText = text.substring(0, i + 1)
+            }
+        } else {
+            // 长度相同，直接更新（确保显示完整）
+            displayedText = text
         }
     }
     
