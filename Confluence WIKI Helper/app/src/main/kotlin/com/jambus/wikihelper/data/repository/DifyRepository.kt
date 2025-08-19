@@ -184,16 +184,22 @@ class DifyRepository @Inject constructor(
                                         android.util.Log.d("DifyRepository", "Parsed event: ${streamData.event}, answer: ${streamData.answer}")
                                         
                                         when (streamData.event) {
-                                            "message", "agent_message" -> {
+                                            "message_delta" -> {
+                                                // message_delta事件包含真正的增量文本
                                                 streamData.answer?.let { answer ->
-                                                    android.util.Log.d("DifyRepository", "Emitting answer chunk: '$answer'")
-                                                    emit(answer)
+                                                    if (answer.isNotEmpty()) {
+                                                        android.util.Log.d("DifyRepository", "Emitting delta chunk: '$answer'")
+                                                        emit(answer)
+                                                    }
                                                 }
                                             }
-                                            "message_delta" -> {
+                                            "message", "agent_message" -> {
+                                                // 临时也发送message事件，观察实际数据
                                                 streamData.answer?.let { answer ->
-                                                    android.util.Log.d("DifyRepository", "Emitting delta chunk: '$answer'")
-                                                    emit(answer)
+                                                    if (answer.isNotEmpty()) {
+                                                        android.util.Log.d("DifyRepository", "Emitting message chunk: '$answer'")
+                                                        emit(answer)
+                                                    }
                                                 }
                                             }
                                             "message_end" -> {
@@ -202,14 +208,22 @@ class DifyRepository @Inject constructor(
                                                     android.util.Log.d("DifyRepository", "Received Dify conversation_id: $cid")
                                                     onConversationIdReceived?.invoke(cid)
                                                 }
-                                                return@use
+                                                return@flow // 正确结束Flow
                                             }
                                             "error" -> {
                                                 android.util.Log.e("DifyRepository", "Dify API error in stream: ${streamData.answer}")
                                                 throw Exception("Dify API error: ${streamData.answer}")
                                             }
                                             else -> {
-                                                android.util.Log.d("DifyRepository", "Unknown event type: ${streamData.event}")
+                                                // 记录所有其他事件类型，帮助调试
+                                                android.util.Log.d("DifyRepository", "Unknown event: ${streamData.event}, answer: ${streamData.answer}")
+                                                // 临时发送所有非空内容
+                                                streamData.answer?.let { answer ->
+                                                    if (answer.isNotEmpty()) {
+                                                        android.util.Log.d("DifyRepository", "Emitting unknown event chunk: '$answer'")
+                                                        emit(answer)
+                                                    }
+                                                }
                                             }
                                         }
                                     } catch (e: Exception) {
@@ -219,12 +233,13 @@ class DifyRepository @Inject constructor(
                                     }
                                 } else if (jsonData == "[DONE]") {
                                     android.util.Log.d("DifyRepository", "Stream completed with [DONE]")
-                                    return@use
+                                    return@flow // 正确结束Flow
                                 }
                             }
                         }
                     }
                     android.util.Log.d("DifyRepository", "Stream reading completed normally")
+                    return@flow // 流正常结束
                 } catch (e: java.io.IOException) {
                     android.util.Log.e("DifyRepository", "IOException during stream reading: ${e.javaClass.simpleName}: ${e.message}")
                     android.util.Log.e("DifyRepository", "IOException stack trace: ${e.stackTraceToString()}")
@@ -248,8 +263,16 @@ class DifyRepository @Inject constructor(
             val json = JSONObject(jsonData)
             android.util.Log.d("DifyStreamParse", "Parsing JSON: $jsonData")
             
-            // 尝试从不同字段获取答案内容
+            // 根据事件类型和字段优先级获取内容
+            val event = json.optString("event", "")
             val answer = when {
+                // 对于message_delta事件，优先使用delta字段（真正的增量）
+                event == "message_delta" && json.has("delta") -> {
+                    val deltaValue = json.optString("delta")
+                    android.util.Log.d("DifyStreamParse", "Found delta field for message_delta: '$deltaValue'")
+                    deltaValue
+                }
+                // 对于其他事件，按原有逻辑处理
                 json.has("answer") -> {
                     val answerValue = json.optString("answer")
                     android.util.Log.d("DifyStreamParse", "Found answer field: '$answerValue'")
@@ -270,8 +293,6 @@ class DifyRepository @Inject constructor(
                     null
                 }
             }
-            
-            val event = json.optString("event", "")
             val conversationId = json.optString("conversation_id")
             val messageId = json.optString("message_id")
             

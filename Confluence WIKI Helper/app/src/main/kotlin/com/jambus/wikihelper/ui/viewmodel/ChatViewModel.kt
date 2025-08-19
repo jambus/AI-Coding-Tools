@@ -28,7 +28,10 @@ class ChatViewModel @Inject constructor(
         val error: String? = null,
         val currentConversationId: String? = null,  // 本地数据库conversation ID
         val difyConversationId: String? = null,     // Dify API conversation ID
-        val isApiKeySet: Boolean = false
+        val isApiKeySet: Boolean = false,
+        val streamingMessage: String = "",          // 当前正在流式输入的消息
+        val isStreaming: Boolean = false,           // 是否正在流式输入
+        val streamingMessageId: Long = 0            // 流式消息的ID，用于平滑转换
     )
 
     data class ChatMessageUi(
@@ -121,6 +124,16 @@ class ChatViewModel @Inject constructor(
             try {
                 // 使用流式响应
                 var fullResponse = ""
+                android.util.Log.d("ChatViewModel", "Starting stream for message: '$message'")
+                
+                // 启动流式状态，不修改历史消息
+                val streamingId = System.currentTimeMillis() // 预分配ID
+                _uiState.value = _uiState.value.copy(
+                    isStreaming = true,
+                    streamingMessage = "",
+                    streamingMessageId = streamingId,
+                    isLoading = true
+                )
 
                 difyRepository.streamChatMessage(
                     message = message,
@@ -133,34 +146,30 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 ).collect { streamResponse ->
-                    // 直接处理字符串响应
+                    // Dify API返回的是增量文本，需要累加
                     fullResponse += streamResponse
                     android.util.Log.d("ChatViewModel", "Stream chunk: '$streamResponse', Full response so far: '$fullResponse'")
                     
-                    // 实时更新UI显示（支持打字机效果）
-                    val currentMessages = _uiState.value.messages.toMutableList()
-                    val aiMessageIndex = currentMessages.indexOfLast { !it.isUser }
-                    
-                    if (aiMessageIndex >= 0) {
-                        // 更新现有AI消息
-                        currentMessages[aiMessageIndex] = currentMessages[aiMessageIndex].copy(
-                            text = fullResponse
-                        )
-                    } else {
-                        // 添加新的AI消息
-                        currentMessages.add(ChatMessageUi(
-                            text = fullResponse,
-                            isUser = false,
-                            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                                .format(java.util.Date())
-                        ))
-                    }
-                    
+                    // 只更新流式消息状态，不触及历史消息列表
                     _uiState.value = _uiState.value.copy(
-                        messages = currentMessages,
-                        isLoading = true // 仍在加载中
+                        streamingMessage = fullResponse,
+                        isStreaming = true,
+                        isLoading = true
                     )
                 }
+                
+                // Flow完成后执行（只有当Flow正常结束时才会到达这里）
+                android.util.Log.d("ChatViewModel", "Stream completed. Final response: '$fullResponse'")
+                
+                // 流结束后，将完整消息添加到历史记录，清空流式状态
+                val currentMessages = _uiState.value.messages.toMutableList()
+                currentMessages.add(ChatMessageUi(
+                    id = _uiState.value.streamingMessageId, // 使用相同的ID确保平滑转换
+                    text = fullResponse,
+                    isUser = false,
+                    timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date())
+                ))
                 
                 // 流结束后保存完整的AI回答到数据库
                 chatRepository.sendMessage(
@@ -170,16 +179,57 @@ class ChatViewModel @Inject constructor(
                 )
                 
                 _uiState.value = _uiState.value.copy(
+                    messages = currentMessages,
+                    streamingMessage = "",
+                    streamingMessageId = 0,
+                    isStreaming = false,
                     isLoading = false,
                     error = null
                 )
                 
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "发送消息失败: ${e.message}"
-                )
                 android.util.Log.e("ChatViewModel", "Send message error", e)
+                
+                // 如果有部分响应，保存到历史记录
+                val partialResponse = _uiState.value.streamingMessage
+                if (partialResponse.isNotEmpty()) {
+                    val currentMessages = _uiState.value.messages.toMutableList()
+                    currentMessages.add(ChatMessageUi(
+                        id = _uiState.value.streamingMessageId, // 使用相同的ID
+                        text = partialResponse,
+                        isUser = false,
+                        timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date())
+                    ))
+                    
+                    // 保存到数据库
+                    try {
+                        chatRepository.sendMessage(
+                            message = partialResponse,
+                            isUser = false,
+                            conversationId = conversationId
+                        )
+                    } catch (dbError: Exception) {
+                        android.util.Log.e("ChatViewModel", "Failed to save partial response to database", dbError)
+                    }
+                    
+                    _uiState.value = _uiState.value.copy(
+                        messages = currentMessages,
+                        streamingMessage = "",
+                        streamingMessageId = 0,
+                        isStreaming = false,
+                        isLoading = false,
+                        error = "消息发送中断，但已保存部分内容"
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        streamingMessage = "",
+                        streamingMessageId = 0,
+                        isStreaming = false,
+                        isLoading = false,
+                        error = "发送消息失败: ${e.message}"
+                    )
+                }
             }
         }
     }

@@ -84,10 +84,18 @@ fun ChatScreen(
         }
     }
 
-    // 自动滚动到底部
+    // 自动滚动到底部 - 处理普通消息和流式消息
     LaunchedEffect(uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
             scrollState.animateScrollToItem(uiState.messages.size - 1)
+        }
+    }
+    
+    // 流式消息时也自动滚动
+    LaunchedEffect(uiState.streamingMessage) {
+        if (uiState.isStreaming && uiState.streamingMessage.isNotEmpty()) {
+            val totalItems = uiState.messages.size + 1 // +1 for streaming message
+            scrollState.animateScrollToItem(totalItems - 1)
         }
     }
 
@@ -114,13 +122,14 @@ fun ChatScreen(
                     } else {
                         MessageList(
                             messages = uiState.messages,
+                            streamingMessage = uiState.streamingMessage,
+                            isStreaming = uiState.isStreaming,
                             scrollState = scrollState,
                             onSourceClick = { source ->
                                 selectedSource = source
                                 showKnowledgeSheet = true
                             },
-                            isLoading = uiState.isLoading,
-                            modifier = Modifier.fillMaxSize()
+                            isLoading = uiState.isLoading
                         )
                     }
                 }
@@ -437,6 +446,8 @@ fun ChatTopBar(
 @Composable
 fun MessageList(
     messages: List<ChatViewModel.ChatMessageUi>,
+    streamingMessage: String,
+    isStreaming: Boolean,
     scrollState: LazyListState,
     onSourceClick: (String) -> Unit,
     isLoading: Boolean,
@@ -448,11 +459,33 @@ fun MessageList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(16.dp)
     ) {
-        items(messages) { message ->
-            AnimatedMessageBubble(
+        items(
+            items = messages,
+            key = { message -> message.id } // 使用稳定的key避免重组
+        ) { message ->
+            // 历史消息使用静态组件，避免重组动画
+            StaticMessageBubble(
                 message = message,
                 onSourceClick = onSourceClick
             )
+        }
+        
+        // 显示正在流式输入的消息
+        if (isStreaming && streamingMessage.isNotEmpty()) {
+            item(key = "streaming_message") { // 使用固定key避免重复
+                // 只有流式消息使用动画组件
+                AnimatedMessageBubble(
+                    message = ChatViewModel.ChatMessageUi(
+                        id = 0, // 临时ID，不会与历史消息冲突
+                        text = streamingMessage,
+                        isUser = false,
+                        timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date())
+                    ),
+                    onSourceClick = onSourceClick,
+                    isStreaming = true // 标识这是流式消息
+                )
+            }
         }
         
         if (isLoading) {
@@ -463,25 +496,50 @@ fun MessageList(
     }
 }
 
-// 带动画的消息气泡
+// 静态消息气泡 - 用于历史消息，避免重组时的动画重播
 @Composable
-fun AnimatedMessageBubble(
+fun StaticMessageBubble(
     message: ChatViewModel.ChatMessageUi,
     onSourceClick: (String) -> Unit
 ) {
-    var isVisible by remember { mutableStateOf(false) }
-    
-    LaunchedEffect(message) {
-        isVisible = true
-    }
-    
-    AnimatedVisibility(
-        visible = isVisible,
-        enter = slideInVertically(
-            initialOffsetY = { it },
-            animationSpec = tween(300)
-        ) + fadeIn(animationSpec = tween(300))
-    ) {
+    // 直接显示，无任何动画效果（包括打字机效果）
+    EnhancedMessageBubble(
+        message = message,
+        onSourceClick = onSourceClick,
+        useTypewriter = false // 明确禁用打字机效果
+    )
+}
+
+// 带动画的消息气泡 - 仅用于流式消息
+@Composable
+fun AnimatedMessageBubble(
+    message: ChatViewModel.ChatMessageUi,
+    onSourceClick: (String) -> Unit,
+    isStreaming: Boolean = false
+) {
+    // 只有流式消息才有动画效果
+    if (isStreaming) {
+        var isVisible by remember { mutableStateOf(false) }
+        
+        LaunchedEffect(Unit) { // 只在首次显示时触发动画
+            isVisible = true
+        }
+        
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = tween(300)
+            ) + fadeIn(animationSpec = tween(300))
+        ) {
+            EnhancedMessageBubble(
+                message = message,
+                onSourceClick = onSourceClick,
+                useTypewriter = true // 流式消息使用打字机效果
+            )
+        }
+    } else {
+        // 非流式消息直接显示，无动画
         EnhancedMessageBubble(
             message = message,
             onSourceClick = onSourceClick
@@ -493,7 +551,8 @@ fun AnimatedMessageBubble(
 @Composable
 fun EnhancedMessageBubble(
     message: ChatViewModel.ChatMessageUi,
-    onSourceClick: (String) -> Unit
+    onSourceClick: (String) -> Unit,
+    useTypewriter: Boolean = false // 新增参数控制是否使用打字机效果
 ) {
     val clipboardManager = LocalClipboardManager.current
     val backgroundColor = if (message.isUser) UserMessageBackground else AIMessageBackground
@@ -532,12 +591,21 @@ fun EnhancedMessageBubble(
                             fontSize = 16.sp
                         )
                     } else {
-                        // AI消息支持打字机效果
-                        TypewriterText(
-                            text = message.text,
-                            color = textColor,
-                            fontSize = 16.sp
-                        )
+                        // AI消息：只有流式消息才使用打字机效果
+                        if (useTypewriter) {
+                            TypewriterText(
+                                text = message.text,
+                                color = textColor,
+                                fontSize = 16.sp
+                            )
+                        } else {
+                            // 历史消息直接显示完整文本，无动画
+                            Text(
+                                text = message.text,
+                                color = textColor,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
                 }
             }
