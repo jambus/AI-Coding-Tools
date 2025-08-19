@@ -20,6 +20,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jambus.wikihelper.ui.viewmodel.ChatViewModel
 import com.jambus.wikihelper.ui.theme.ThemeManager
+import com.jambus.wikihelper.ui.theme.LocalThemeManager
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Chat : Screen("chat", "Chat", Icons.Filled.Email)
@@ -203,9 +204,13 @@ fun KnowledgeScreen() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
-    val context = LocalContext.current
-    val themeManager = remember { ThemeManager(context) }
-    val isDarkTheme by themeManager.isDarkTheme.collectAsState()
+    val themeManager = LocalThemeManager.current
+    val isDarkTheme = if (themeManager != null) {
+        val isDark by themeManager.isDarkTheme.collectAsState()
+        isDark
+    } else {
+        false
+    }
     
     Column(
         modifier = Modifier
@@ -226,6 +231,14 @@ fun SettingsScreen() {
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
+                
+                // Debug info
+                Text(
+                    text = "Current Theme: ${if (isDarkTheme) "🌙 Dark" else "☀️ Light"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // Theme setting
@@ -240,14 +253,16 @@ fun SettingsScreen() {
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Switch between light and dark theme",
+                            text = "Switch theme (Current: ${if (isDarkTheme) "Dark" else "Light"})",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Switch(
                         checked = isDarkTheme,
-                        onCheckedChange = { themeManager.toggleTheme() }
+                        onCheckedChange = { 
+                            themeManager?.toggleTheme()
+                        }
                     )
                 }
                 

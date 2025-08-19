@@ -1,6 +1,7 @@
 package com.jambus.wikihelper.ui.theme
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,7 +23,9 @@ class ThemeManager @Inject constructor(
     
     init {
         // 读取保存的主题设置
-        _isDarkTheme.value = sharedPrefs.getBoolean("dark_theme", false)
+        val savedTheme = sharedPrefs.getBoolean("dark_theme", false)
+        _isDarkTheme.value = savedTheme
+        Log.d("ThemeManager", "Initialized with dark theme: $savedTheme")
     }
     
     fun toggleTheme() {
@@ -33,6 +36,8 @@ class ThemeManager @Inject constructor(
         sharedPrefs.edit()
             .putBoolean("dark_theme", newValue)
             .apply()
+            
+        Log.d("ThemeManager", "Theme toggled to: $newValue")
     }
     
     fun setDarkTheme(isDark: Boolean) {
@@ -40,6 +45,7 @@ class ThemeManager @Inject constructor(
         sharedPrefs.edit()
             .putBoolean("dark_theme", isDark)
             .apply()
+        Log.d("ThemeManager", "Theme set to: $isDark")
     }
 }
 

@@ -2,6 +2,7 @@ package com.jambus.wikihelper.ui.theme
 
 import android.app.Activity
 import android.os.Build
+import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -14,6 +15,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+
+// CompositionLocal for ThemeManager
+val LocalThemeManager = compositionLocalOf<ThemeManager?> { null }
 
 private val DarkColorScheme = darkColorScheme(
     primary = PrimaryBlue,
@@ -45,14 +49,20 @@ private val LightColorScheme = lightColorScheme(
 fun WikiHelperTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
+    themeManager: ThemeManager? = null,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val themeManager = remember { ThemeManager(context) }
-    val isDarkTheme by themeManager.isDarkTheme.collectAsState()
     
-    // Use theme manager's state instead of system theme
-    val useDarkTheme = isDarkTheme
+    // Use provided themeManager or create a fallback
+    val useDarkTheme = if (themeManager != null) {
+        val isDarkTheme by themeManager.isDarkTheme.collectAsState()
+        Log.d("WikiHelperTheme", "Using ThemeManager with dark theme: $isDarkTheme")
+        isDarkTheme
+    } else {
+        Log.d("WikiHelperTheme", "Using system theme: $darkTheme")
+        darkTheme
+    }
     
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
@@ -70,9 +80,11 @@ fun WikiHelperTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    CompositionLocalProvider(LocalThemeManager provides themeManager) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }
