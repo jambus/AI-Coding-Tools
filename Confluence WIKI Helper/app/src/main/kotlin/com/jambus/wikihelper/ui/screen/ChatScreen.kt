@@ -63,11 +63,12 @@ fun ChatScreen(
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var selectedSource by remember { mutableStateOf("") }
 
-    // 检查API Key状态
+    // 检查API Key状态（但不强制要求）
     LaunchedEffect(uiState.isApiKeySet) {
-        if (!uiState.isApiKeySet) {
-            showApiKeyDialog = true
-        }
+        // 可以在这里显示提示，但不强制弹出对话框
+        // if (!uiState.isApiKeySet) {
+        //     showApiKeyDialog = true
+        // }
     }
 
     // 自动滚动到底部
@@ -91,28 +92,31 @@ fun ChatScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                if (uiState.messages.isEmpty()) {
-                    EmptyStateScreen()
-                } else {
-                    MessageList(
-                        messages = uiState.messages,
-                        scrollState = scrollState,
-                        onSourceClick = { source ->
-                            selectedSource = source
-                            showKnowledgeSheet = true
-                        },
-                        isLoading = uiState.isLoading,
-                        modifier = Modifier.weight(1f)
-                    )
+                // Content area with weight to allow InputBar to show at bottom
+                Box(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (uiState.messages.isEmpty()) {
+                        EmptyStateScreen()
+                    } else {
+                        MessageList(
+                            messages = uiState.messages,
+                            scrollState = scrollState,
+                            onSourceClick = { source ->
+                                selectedSource = source
+                                showKnowledgeSheet = true
+                            },
+                            isLoading = uiState.isLoading,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
                 
+                // InputBar should always be shown at bottom
                 InputBar(
                     onSendMessage = { message, attachments ->
-                        if (uiState.isApiKeySet) {
-                            viewModel.sendMessage(message, attachments)
-                        } else {
-                            showApiKeyDialog = true
-                        }
+                        // Always allow sending messages, ViewModel will handle API key logic
+                        viewModel.sendMessage(message, attachments)
                     }
                 )
             }
@@ -681,7 +685,7 @@ fun EmptyStateScreen() {
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            color = TextPrimary
+            color = MaterialTheme.colorScheme.onBackground
         )
         
         Spacer(modifier = Modifier.height(8.dp))
@@ -690,7 +694,25 @@ fun EmptyStateScreen() {
             text = "您可以问我任何关于公司政策、流程或技术问题",
             fontSize = 16.sp,
             textAlign = TextAlign.Center,
-            color = TextSecondary
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(
+            text = "💬 在下方输入框开始对话",
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.primary
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Text(
+            text = "提示：设置Dify API Key可获得AI智能回复",
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

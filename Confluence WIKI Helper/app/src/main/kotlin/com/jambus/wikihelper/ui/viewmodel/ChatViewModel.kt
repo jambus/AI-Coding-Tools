@@ -109,7 +109,8 @@ class ChatViewModel @Inject constructor(
     fun sendMessage(message: String, files: List<String> = emptyList()) {
         val apiKey = securityManager.getApiKey()
         if (apiKey.isNullOrEmpty()) {
-            _uiState.value = _uiState.value.copy(error = "请先设置API密钥")
+            // For testing purposes, add a mock response
+            addMockResponse(message)
             return
         }
 
@@ -233,7 +234,40 @@ class ChatViewModel @Inject constructor(
     }
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
+                _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    // Mock response for testing when no API key is set
+    private fun addMockResponse(userMessage: String) {
+        val currentMessages = _uiState.value.messages.toMutableList()
+        
+        // Add user message
+        currentMessages.add(ChatMessageUi(
+            text = userMessage,
+            isUser = true,
+            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date())
+        ))
+        
+        // Add mock AI response
+        val mockResponse = when {
+            userMessage.contains("你好") || userMessage.contains("hello") -> 
+                "您好！我是企业知识助手。我可以帮助您解答关于公司政策、流程和技术问题。请注意：当前为演示模式，请设置Dify API Key以获得完整功能。"
+            userMessage.contains("测试") || userMessage.contains("test") ->
+                "测试功能正常！聊天界面工作正常。要获得AI回复，请在设置中配置您的Dify API Key。"
+            else ->
+                "我收到了您的消息：\"$userMessage\"。为了提供智能回复，请在设置页面中配置您的Dify API Key。"
+        }
+        
+        currentMessages.add(ChatMessageUi(
+            text = mockResponse,
+            isUser = false,
+            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date()),
+            references = "演示模式 - 请配置API Key获得真实AI回复"
+        ))
+        
+        _uiState.value = _uiState.value.copy(messages = currentMessages)
     }
 
     fun deleteConversation(conversationId: String) {
