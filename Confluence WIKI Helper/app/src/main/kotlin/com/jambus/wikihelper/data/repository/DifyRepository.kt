@@ -6,6 +6,7 @@ import com.jambus.wikihelper.utils.NetworkResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.json.JSONObject
@@ -45,17 +46,7 @@ class DifyRepository @Inject constructor(
                 if (response.isSuccessful && response.body() != null) {
                     NetworkResult.Success(response.body()!!)
                 } else {
-                    val errorBody = response.errorBody()?.string()
-                    android.util.Log.e("DifyRepository", "API Error - Code: ${response.code()}, Message: ${response.message()}")
-                    android.util.Log.e("DifyRepository", "Error Body: $errorBody")
-                    
-                    val errorMessage = try {
-                        val errorJson = JSONObject(errorBody ?: "")
-                        errorJson.optString("message", "Unknown error")
-                    } catch (e: Exception) {
-                        "API Error: ${response.code()} - ${response.message()}\nURL: ${response.raw().request.url}"
-                    }
-                    NetworkResult.Error(errorMessage)
+                    NetworkResult.Error("API Error: ${response.code()} - ${response.message()}")
                 }
             } catch (e: Exception) {
                 NetworkResult.Error("Network Error: ${e.message}")
@@ -69,7 +60,7 @@ class DifyRepository @Inject constructor(
         user: String = DEFAULT_USER_ID,
         conversationId: String? = null,
         files: List<DifyFile>? = null
-    ): Flow<NetworkResult<DifyStreamResponse>> = flow {
+    ): Flow<NetworkResult<DifyStreamResponse>> = flow<NetworkResult<DifyStreamResponse>> {
         try {
             val request = DifyChatRequest(
                 query = query,
@@ -85,114 +76,78 @@ class DifyRepository @Inject constructor(
             
             responseBody.source().use { source ->
                 val reader = BufferedReader(source.inputStream().reader())
-                var line: String?
                 
-                while (reader.readLine().also { line = it } != null) {
-                    line?.let { currentLine ->
-                        if (currentLine.startsWith("data: ")) {
-                            val jsonData = currentLine.substring(6).trim()
-                            if (jsonData != "[DONE]" && jsonData.isNotEmpty()) {
-                                try {
-                                    val streamData = parseStreamResponse(jsonData)
-                                    emit(NetworkResult.Success(streamData))
-                                } catch (e: Exception) {
-                                    emit(NetworkResult.Error("Stream parsing error: ${e.message}"))
+                android.util.Log.d("DifyStream", "Starting stream reading...")
+                
+                try {
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        line?.let { currentLine ->
+                            android.util.Log.d("DifyStream", "Received line: '$currentLine'")
+                            
+                            if (currentLine.startsWith("data: ")) {
+                                val jsonData = currentLine.substring(6).trim()
+                                android.util.Log.d("DifyStream", "Extracted JSON data: '$jsonData'")
+                                
+                                when {
+                                    jsonData == "[DONE]" -> {
+                                        android.util.Log.d("DifyStream", "Stream completed with [DONE]")
+                                        return@use
+                                    }
+                                    jsonData.isNotEmpty() -> {
+                                        try {
+                                            val streamData = parseStreamResponse(jsonData)
+                                            android.util.Log.d("DifyStream", "Parsed stream data: event=${streamData.event}, answer='${streamData.answer}'")
+                                            
+                                            // 检查是否是流结束事件
+                                            if (streamData.event == "message_end" || streamData.event == "agent_message_end") {
+                                                android.util.Log.d("DifyStream", "Stream ended with event: ${streamData.event}")
+                                                emit(NetworkResult.Success(streamData))
+                                            return@flow
+                                        } else {
+                                            emit(NetworkResult.Success(streamData))
+                                        }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("DifyStream", "Stream parsing error", e)
+                                        emit(NetworkResult.Error("Stream parsing error: ${e.message}"))
+                                    }
+                                }
+                                else -> {
+                                    android.util.Log.d("DifyStream", "Skipping empty JSON data")
                                 }
                             }
+                        } else if (currentLine.trim().isEmpty()) {
+                            android.util.Log.d("DifyStream", "Received empty line (heartbeat)")
+                        } else {
+                            android.util.Log.d("DifyStream", "Received non-data line: '$currentLine'")
                         }
                     }
                 }
-            }
-        } catch (e: Exception) {
-            emit(NetworkResult.Error("Stream error: ${e.message}"))
-        }
-    }
-
-    private fun parseStreamResponse(jsonData: String): DifyStreamResponse {
-        val json = JSONObject(jsonData)
-        return DifyStreamResponse(
-            event = json.optString("event", ""),
-            conversation_id = json.optString("conversation_id"),
-            message_id = json.optString("message_id"),
-            answer = json.optString("answer"),
-            created_at = json.optLong("created_at"),
-            metadata = parseMetadata(json.optJSONObject("metadata"))
-        )
-    }
-
-    private fun parseMetadata(metadataJson: JSONObject?): DifyMetadata? {
-        if (metadataJson == null) return null
-        
-        val usage = metadataJson.optJSONObject("usage")?.let { usageJson ->
-            DifyUsage(
-                prompt_tokens = usageJson.optInt("prompt_tokens"),
-                completion_tokens = usageJson.optInt("completion_tokens"),
-                total_tokens = usageJson.optInt("total_tokens")
-            )
-        }
-        
-        val retrieverResources = metadataJson.optJSONArray("retriever_resources")?.let { array ->
-            mutableListOf<DifyRetrieverResource>().apply {
-                for (i in 0 until array.length()) {
-                    val resourceJson = array.getJSONObject(i)
-                    add(DifyRetrieverResource(
-                        dataset_id = resourceJson.optString("dataset_id"),
-                        dataset_name = resourceJson.optString("dataset_name"),
-                        document_name = resourceJson.optString("document_name"),
-                        segment_id = resourceJson.optString("segment_id"),
-                        score = resourceJson.optDouble("score"),
-                        content = resourceJson.optString("content"),
-                        position = resourceJson.optInt("position")
-                    ))
-                }
-            }
-        }
-        
-        return DifyMetadata(usage = usage, retriever_resources = retrieverResources)
-    }
-
-    suspend fun sendCompletionMessage(
-        apiKey: String,
-        user: String = DEFAULT_USER_ID,
-        inputs: Map<String, String> = emptyMap(),
-        responseMode: String = "blocking",
-        files: List<DifyFile>? = null
-    ): NetworkResult<DifyChatResponse> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val request = DifyCompletionRequest(
-                    inputs = inputs,
-                    user = user,
-                    response_mode = responseMode,
-                    files = files
-                )
-                
-                val response = apiService.sendCompletionMessage(
-                    request = request
-                )
-                
-                if (response.isSuccessful && response.body() != null) {
-                    NetworkResult.Success(response.body()!!)
-                } else {
-                    NetworkResult.Error("API Error: ${response.code()} - ${response.message()}")
-                }
+            } catch (e: java.io.IOException) {
+                android.util.Log.e("DifyStream", "IOException during stream reading", e)
+                emit(NetworkResult.Error("Stream connection error: ${e.message}"))
             } catch (e: Exception) {
-                NetworkResult.Error("Network Error: ${e.message}")
+                android.util.Log.e("DifyStream", "Unexpected error during stream reading", e)
+                emit(NetworkResult.Error("Stream error: ${e.message}"))
             }
+            
+            android.util.Log.d("DifyStream", "Stream reading completed")
         }
+    } catch (e: Exception) {
+        emit(NetworkResult.Error("Stream error: ${e.message}"))
     }
+}.flowOn(Dispatchers.IO)
 
     suspend fun streamChatMessage(
         message: String,
         conversationId: String?,
         onConversationIdReceived: ((String) -> Unit)? = null
-    ): Flow<String> = flow {
+    ): Flow<String> = flow<String> {
         try {
-            // 对于新对话，不传递conversation_id；对于已有对话，验证ID格式
             val validConversationId = if (conversationId.isNullOrBlank()) {
-                null  // 新对话
+                null
             } else {
-                conversationId  // 使用现有对话ID
+                conversationId
             }
             
             android.util.Log.d("DifyRepository", "Sending stream chat message with conversation_id: $validConversationId")
@@ -211,38 +166,145 @@ class DifyRepository @Inject constructor(
             
             responseBody.source().use { source ->
                 val reader = BufferedReader(source.inputStream().reader())
-                var line: String?
                 
-                while (reader.readLine().also { line = it } != null) {
-                    line?.let { currentLine ->
-                        if (currentLine.startsWith("data: ")) {
-                            val jsonData = currentLine.substring(6).trim()
-                            if (jsonData != "[DONE]" && jsonData.isNotEmpty()) {
-                                try {
-                                    val streamData = parseStreamResponse(jsonData)
-                                    // 如果是消息事件，提取答案文本
-                                    if (streamData.event == "message") {
-                                        streamData.answer?.let { answer ->
-                                            emit(answer)
+                android.util.Log.d("DifyRepository", "Starting stream reading...")
+                
+                try {
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        line?.let { currentLine ->
+                            android.util.Log.d("DifyRepository", "Raw line: '$currentLine'")
+                            
+                            if (currentLine.startsWith("data: ")) {
+                                val jsonData = currentLine.substring(6).trim()
+                                android.util.Log.d("DifyRepository", "Raw stream data: $jsonData")
+                                if (jsonData != "[DONE]" && jsonData.isNotEmpty()) {
+                                    try {
+                                        val streamData = parseStreamResponse(jsonData)
+                                        android.util.Log.d("DifyRepository", "Parsed event: ${streamData.event}, answer: ${streamData.answer}")
+                                        
+                                        when (streamData.event) {
+                                            "message", "agent_message" -> {
+                                                streamData.answer?.let { answer ->
+                                                    android.util.Log.d("DifyRepository", "Emitting answer chunk: '$answer'")
+                                                    emit(answer)
+                                                }
+                                            }
+                                            "message_delta" -> {
+                                                streamData.answer?.let { answer ->
+                                                    android.util.Log.d("DifyRepository", "Emitting delta chunk: '$answer'")
+                                                    emit(answer)
+                                                }
+                                            }
+                                            "message_end" -> {
+                                                android.util.Log.d("DifyRepository", "Stream ended normally")
+                                                streamData.conversation_id?.let { cid ->
+                                                    android.util.Log.d("DifyRepository", "Received Dify conversation_id: $cid")
+                                                    onConversationIdReceived?.invoke(cid)
+                                                }
+                                                return@use
+                                            }
+                                            "error" -> {
+                                                android.util.Log.e("DifyRepository", "Dify API error in stream: ${streamData.answer}")
+                                                throw Exception("Dify API error: ${streamData.answer}")
+                                            }
+                                            else -> {
+                                                android.util.Log.d("DifyRepository", "Unknown event type: ${streamData.event}")
+                                            }
                                         }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("DifyRepository", "Stream parsing error: ${e.message}")
+                                        android.util.Log.e("DifyRepository", "Failed to parse: $jsonData")
+                                        throw e
                                     }
-                                    // 如果是message_end事件，保存conversation_id
-                                    if (streamData.event == "message_end") {
-                                        streamData.conversation_id?.let { cid ->
-                                            android.util.Log.d("DifyRepository", "Received Dify conversation_id: $cid")
-                                            onConversationIdReceived?.invoke(cid)
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    android.util.Log.e("DifyRepository", "Stream parsing error: ${e.message}")
+                                } else if (jsonData == "[DONE]") {
+                                    android.util.Log.d("DifyRepository", "Stream completed with [DONE]")
+                                    return@use
                                 }
                             }
                         }
                     }
+                    android.util.Log.d("DifyRepository", "Stream reading completed normally")
+                } catch (e: java.io.IOException) {
+                    android.util.Log.e("DifyRepository", "IOException during stream reading: ${e.javaClass.simpleName}: ${e.message}")
+                    android.util.Log.e("DifyRepository", "IOException stack trace: ${e.stackTraceToString()}")
+                    throw Exception("Stream connection error: ${e.message}")
+                } catch (e: Exception) {
+                    android.util.Log.e("DifyRepository", "Error reading stream: ${e.javaClass.simpleName}: ${e.message}")
+                    android.util.Log.e("DifyRepository", "Exception stack trace: ${e.stackTraceToString()}")
+                    throw e
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("DifyRepository", "Stream error: ${e.message}")
+            val errorMessage = e.message ?: "Unknown error"
+            val exceptionType = e.javaClass.simpleName
+            android.util.Log.e("DifyRepository", "Stream error - Type: $exceptionType, Message: '$errorMessage'")
+            android.util.Log.e("DifyRepository", "Stream error stack trace: ${e.stackTraceToString()}")
         }
+    }.flowOn(Dispatchers.IO)
+
+    private fun parseStreamResponse(jsonData: String): DifyStreamResponse {
+        try {
+            val json = JSONObject(jsonData)
+            android.util.Log.d("DifyStreamParse", "Parsing JSON: $jsonData")
+            
+            // 尝试从不同字段获取答案内容
+            val answer = when {
+                json.has("answer") -> {
+                    val answerValue = json.optString("answer")
+                    android.util.Log.d("DifyStreamParse", "Found answer field: '$answerValue'")
+                    answerValue
+                }
+                json.has("delta") -> {
+                    val deltaValue = json.optString("delta")
+                    android.util.Log.d("DifyStreamParse", "Found delta field: '$deltaValue'")
+                    deltaValue
+                }
+                json.has("content") -> {
+                    val contentValue = json.optString("content")
+                    android.util.Log.d("DifyStreamParse", "Found content field: '$contentValue'")
+                    contentValue
+                }
+                else -> {
+                    android.util.Log.d("DifyStreamParse", "No answer/delta/content field found")
+                    null
+                }
+            }
+            
+            val event = json.optString("event", "")
+            val conversationId = json.optString("conversation_id")
+            val messageId = json.optString("message_id")
+            
+            android.util.Log.d("DifyStreamParse", "Parsed - event: '$event', conversation_id: '$conversationId', message_id: '$messageId', answer: '$answer'")
+            
+            return DifyStreamResponse(
+                event = event,
+                conversation_id = conversationId,
+                message_id = messageId,
+                answer = answer,
+                created_at = json.optLong("created_at"),
+                metadata = parseMetadata(json.optJSONObject("metadata"))
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("DifyStreamParse", "Failed to parse stream response: $jsonData", e)
+            throw e
+        }
+    }
+
+    private fun parseMetadata(metadataJson: JSONObject?): DifyMetadata? {
+        if (metadataJson == null) return null
+        
+        val usage = metadataJson.optJSONObject("usage")?.let { usageJson ->
+            DifyUsage(
+                prompt_tokens = usageJson.optInt("prompt_tokens"),
+                completion_tokens = usageJson.optInt("completion_tokens"),
+                total_tokens = usageJson.optInt("total_tokens")
+            )
+        }
+        
+        return DifyMetadata(
+            usage = usage,
+            retriever_resources = emptyList() // 简化处理，根据需要可以添加更多解析
+        )
     }
 }

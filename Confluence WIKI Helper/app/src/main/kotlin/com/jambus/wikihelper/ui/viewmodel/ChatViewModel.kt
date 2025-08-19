@@ -135,6 +135,7 @@ class ChatViewModel @Inject constructor(
                 ).collect { streamResponse ->
                     // 直接处理字符串响应
                     fullResponse += streamResponse
+                    android.util.Log.d("ChatViewModel", "Stream chunk: '$streamResponse', Full response so far: '$fullResponse'")
                     
                     // 实时更新UI显示（支持打字机效果）
                     val currentMessages = _uiState.value.messages.toMutableList()

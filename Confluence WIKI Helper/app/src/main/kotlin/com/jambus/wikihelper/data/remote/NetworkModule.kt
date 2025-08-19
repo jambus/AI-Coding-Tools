@@ -12,6 +12,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import okio.Buffer
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 @Module
@@ -22,6 +23,12 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(securityManager: SecurityManager): OkHttpClient {
         return OkHttpClient.Builder()
+            // 为流式请求配置超时设置
+            .connectTimeout(30, TimeUnit.SECONDS)      // 连接超时
+            .readTimeout(300, TimeUnit.SECONDS)        // 读取超时，流式请求需要较长时间
+            .writeTimeout(30, TimeUnit.SECONDS)        // 写入超时
+            .callTimeout(0, TimeUnit.SECONDS)          // 禁用调用超时，允许长时间流式连接
+            .retryOnConnectionFailure(true)            // 连接失败时重试
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val requestBuilder = originalRequest.newBuilder()
