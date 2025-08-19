@@ -56,67 +56,105 @@ fun ChatScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberLazyListState()
-    
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { 
-                    Text(
-                        "企业知识助手",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
+    var showKnowledgeSheet by remember { mutableStateOf(false) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var selectedSource by remember { mutableStateOf("") }
+
+    // 检查API Key状态
+    LaunchedEffect(uiState.isApiKeySet) {
+        if (!uiState.isApiKeySet) {
+            showApiKeyDialog = true
+        }
+    }
+
+    // 自动滚动到底部
+    LaunchedEffect(uiState.messages.size) {
+        if (uiState.messages.isNotEmpty()) {
+            scrollState.animateScrollToItem(uiState.messages.size - 1)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                ChatTopBar(
+                    onHistoryClick = { /* TODO: 历史记录 */ },
+                    onKnowledgeSearchClick = { showKnowledgeSheet = true }
+                )
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                if (uiState.messages.isEmpty()) {
+                    EmptyStateScreen()
+                } else {
+                    MessageList(
+                        messages = uiState.messages,
+                        scrollState = scrollState,
+                        onSourceClick = { source ->
+                            selectedSource = source
+                            showKnowledgeSheet = true
+                        },
+                        isLoading = uiState.isLoading,
+                        modifier = Modifier.weight(1f)
                     )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = PrimaryBlue,
-                    titleContentColor = Color.White
-                ),
-                actions = {
-                    IconButton(onClick = { /* TODO: 历史记录 */ }) {
-                        Icon(
-                            imageVector = Icons.Default.List,
-                            contentDescription = "历史记录",
-                            tint = Color.White
-                        )
+                }
+                
+                InputBar(
+                    onSendMessage = { message, attachments ->
+                        if (uiState.isApiKeySet) {
+                            viewModel.sendMessage(message, attachments)
+                        } else {
+                            showApiKeyDialog = true
+                        }
                     }
-                    IconButton(onClick = { /* TODO: 知识库搜索 */ }) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "知识库搜索",
-                            tint = Color.White
-                        )
-                    }
+                )
+            }
+        }
+
+        // 错误提示
+        uiState.error?.let { error ->
+            ErrorSnackbar(
+                error = error,
+                onDismiss = { viewModel.clearError() },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
+
+        // API Key设置对话框
+        if (showApiKeyDialog) {
+            ApiKeyDialog(
+                onDismiss = { showApiKeyDialog = false },
+                onConfirm = { apiKey ->
+                    viewModel.setApiKey(apiKey)
+                    showApiKeyDialog = false
                 }
             )
         }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            LazyColumn(
-                state = scrollState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                reverseLayout = false
-            ) {
-                items(uiState.messages) { message ->
-                    ChatMessageItem(message)
-                }
-                if (uiState.isLoading) {
-                    item {
-                        LoadingIndicator()
+
+        // 知识来源底部弹窗
+        if (showKnowledgeSheet) {
+            if (selectedSource.isNotEmpty()) {
+                KnowledgeSourceBottomSheet(
+                    source = selectedSource,
+                    onDismiss = { 
+                        showKnowledgeSheet = false
+                        selectedSource = ""
+                    },
+                    onViewFullDocument = { 
+                        // TODO: 打开完整文档
+                        showKnowledgeSheet = false
+                        selectedSource = ""
                     }
-                }
+                )
+            } else {
+                KnowledgeManagementScreen(
+                    onDismiss = { showKnowledgeSheet = false }
+                )
             }
-            
-            InputBar(
-                onSendMessage = { message, attachments ->
-                    viewModel.sendMessage(message)
-                }
-            )
         }
     }
 }
@@ -731,6 +769,72 @@ fun KnowledgeManagementScreen(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("确定")
+            }
+        }
+    )
+}
+
+// API Key 设置对话框
+@Composable
+fun ApiKeyDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var apiKey by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text(
+                "设置 Dify API Key",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    "请输入您的 Dify API Key 以开始使用企业知识助手：",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text("API Key") },
+                    placeholder = { Text("输入您的 API Key...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PrimaryBlue,
+                        unfocusedBorderColor = Color.Gray
+                    )
+                )
+                
+                Text(
+                    "注意：API Key 将被安全加密存储在设备本地",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { 
+                    if (apiKey.isNotBlank()) {
+                        onConfirm(apiKey.trim())
+                    }
+                },
+                enabled = apiKey.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+            ) {
+                Text("确定", color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = TextSecondary)
             }
         }
     )

@@ -89,7 +89,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun sendMessage(message: String) {
+    fun sendMessage(message: String, files: List<String> = emptyList()) {
         val apiKey = securityManager.getApiKey()
         if (apiKey.isNullOrEmpty()) {
             _uiState.value = _uiState.value.copy(error = "请先设置API密钥")
@@ -102,34 +102,115 @@ class ChatViewModel @Inject constructor(
 
             _uiState.value = _uiState.value.copy(isLoading = true)
 
-            when (val result = difyRepository.sendChatMessage(
-                apiKey = apiKey,
-                query = message,
-                user = "user_${System.currentTimeMillis()}",
-                conversationId = _uiState.value.currentConversationId
-            )) {
-                is NetworkResult.Success -> {
-                    val response = result.data
-                    chatRepository.sendMessage(
-                        message = response.answer,
-                        isUser = false,
-                        conversationId = _uiState.value.currentConversationId,
-                        messageId = response.message_id,
-                        references = response.metadata?.retriever_resources
-                    )
-                    
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = null
-                    )
+            // 将文件转换为DifyFile格式（如果有）
+            val difyFiles = files.map { fileUrl ->
+                com.jambus.wikihelper.data.remote.model.DifyFile(
+                    type = "image", // 根据文件类型判断
+                    transfer_method = "remote_url",
+                    url = fileUrl
+                )
+            }.takeIf { it.isNotEmpty() }
+
+            try {
+                // 使用流式响应
+                var fullResponse = ""
+                var currentConversationId = _uiState.value.currentConversationId
+                var messageId: String? = null
+                var retrieverResources: List<com.jambus.wikihelper.data.remote.model.DifyRetrieverResource>? = null
+
+                difyRepository.sendChatMessageStream(
+                    apiKey = apiKey,
+                    query = message,
+                    conversationId = currentConversationId,
+                    files = difyFiles
+                ).collect { result ->
+                    when (result) {
+                        is com.jambus.wikihelper.utils.NetworkResult.Success -> {
+                            val streamData = result.data
+                            
+                            when (streamData.event) {
+                                "message" -> {
+                                    // 累积回答内容
+                                    streamData.answer?.let { answer ->
+                                        fullResponse += answer
+                                        
+                                        // 实时更新UI显示（支持打字机效果）
+                                        val currentMessages = _uiState.value.messages.toMutableList()
+                                        val aiMessageIndex = currentMessages.indexOfLast { !it.isUser }
+                                        
+                                        if (aiMessageIndex >= 0) {
+                                            // 更新现有AI消息
+                                            currentMessages[aiMessageIndex] = currentMessages[aiMessageIndex].copy(
+                                                text = fullResponse
+                                            )
+                                        } else {
+                                            // 添加新的AI消息
+                                            currentMessages.add(ChatMessageUi(
+                                                text = fullResponse,
+                                                isUser = false,
+                                                timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                                    .format(java.util.Date()),
+                                                references = retrieverResources?.joinToString("\n") { resource ->
+                                                    "${resource.document_name}: ${resource.content}"
+                                                }
+                                            ))
+                                        }
+                                        
+                                        _uiState.value = _uiState.value.copy(
+                                            messages = currentMessages,
+                                            isLoading = true // 仍在加载中
+                                        )
+                                    }
+                                }
+                                "message_end" -> {
+                                    // 消息结束
+                                    currentConversationId = streamData.conversation_id ?: currentConversationId
+                                    messageId = streamData.message_id
+                                    
+                                    // 提取知识来源
+                                    streamData.metadata?.retriever_resources?.let { resources ->
+                                        retrieverResources = resources
+                                    }
+                                    
+                                    // 保存完整的AI回答到数据库
+                                    chatRepository.sendMessage(
+                                        message = fullResponse,
+                                        isUser = false,
+                                        conversationId = currentConversationId,
+                                        messageId = messageId,
+                                        references = retrieverResources
+                                    )
+                                    
+                                    _uiState.value = _uiState.value.copy(
+                                        isLoading = false,
+                                        error = null,
+                                        currentConversationId = currentConversationId
+                                    )
+                                }
+                                "error" -> {
+                                    _uiState.value = _uiState.value.copy(
+                                        isLoading = false,
+                                        error = "AI回答出错，请重试"
+                                    )
+                                }
+                            }
+                        }
+                        is com.jambus.wikihelper.utils.NetworkResult.Error -> {
+                            _uiState.value = _uiState.value.copy(
+                                isLoading = false,
+                                error = result.message
+                            )
+                        }
+                        is com.jambus.wikihelper.utils.NetworkResult.Loading -> {
+                            // 处理加载状态
+                        }
+                    }
                 }
-                is NetworkResult.Error -> {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = result.message
-                    )
-                }
-                else -> {}
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "发送消息失败: ${e.message}"
+                )
             }
         }
     }

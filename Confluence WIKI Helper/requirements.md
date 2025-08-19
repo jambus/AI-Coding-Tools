@@ -136,18 +136,26 @@ Figma/Zeplin 设计稿链接
 3. API接口规范
 
 3.1 Dify集成参数
-<JSON>
-{
-  "base_url": "https://api.dify.ai/v1",
-  "endpoints": {
-    "completion": "/completion-messages",
-    "chat": "/chat-messages"
-  },
-  "headers": {
-    "Authorization": "Bearer {api_key}",
-    "Content-Type": "application/json"
-  }
-}
+
+curl -X POST 'http://123.60.144.244/v1/chat-messages' \
+--header 'Authorization: Bearer {api_key}' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "inputs": {},
+    "query": "What is webpos?",
+    "response_mode": "streaming",
+    "conversation_id": "",
+    "user": "abc-123",
+    "files": [
+      {
+        "type": "image",
+        "transfer_method": "remote_url",
+        "url": "https://cloud.dify.ai/logo/logo-site.png"
+      }
+    ]
+}'
+
+API key需要做成环境变量
 
 4. 开发规范
 <CLAUDE-CODE>

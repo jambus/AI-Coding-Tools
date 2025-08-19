@@ -37,7 +37,7 @@ object NetworkModule {
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("https://api.dify.ai/v1/")
+            .baseUrl("http://123.60.144.244/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
