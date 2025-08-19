@@ -18,17 +18,19 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient {
-        val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
-        }
-
         return OkHttpClient.Builder()
-            .addInterceptor(loggingInterceptor)
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
-                    .addHeader("Accept", "application/json")
                     .build()
-                chain.proceed(request)
+                android.util.Log.d("DifyAPI", "Request URL: ${request.url}")
+                android.util.Log.d("DifyAPI", "Request method: ${request.method}")
+                android.util.Log.d("DifyAPI", "Request headers: ${request.headers}")
+                val response = chain.proceed(request)
+                android.util.Log.d("DifyAPI", "Response code: ${response.code}")
+                if (!response.isSuccessful) {
+                    android.util.Log.e("DifyAPI", "Response error: ${response.message}")
+                }
+                response
             }
             .build()
     }

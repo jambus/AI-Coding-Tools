@@ -51,6 +51,15 @@ class ChatViewModel @Inject constructor(
     init {
         checkApiKey()
         loadConversations()
+        // 在加载完会话后，如果没有当前会话则加载最新的或创建新的
+        viewModelScope.launch {
+            chatRepository.getAllConversations().collect { conversations ->
+                if (_uiState.value.currentConversationId == null && conversations.isNotEmpty()) {
+                    // 加载最新的会话
+                    loadMessages(conversations.first().id)
+                }
+            }
+        }
     }
 
     private fun checkApiKey() {
@@ -89,7 +98,8 @@ class ChatViewModel @Inject constructor(
                             id = msg.id,
                             text = msg.message,
                             isUser = msg.isUser,
-                            timestamp = msg.timestamp.toString(),
+                            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                .format(msg.timestamp),
                             references = msg.references
                         )
                     },
@@ -115,8 +125,15 @@ class ChatViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            // Ensure we have a conversation to save messages to
+            var conversationId = _uiState.value.currentConversationId
+            if (conversationId == null) {
+                conversationId = chatRepository.createConversation("新对话")
+                _uiState.value = _uiState.value.copy(currentConversationId = conversationId)
+            }
+            
             // Add user message to local storage
-            chatRepository.sendMessage(message, true, _uiState.value.currentConversationId)
+            chatRepository.sendMessage(message, true, conversationId)
 
             _uiState.value = _uiState.value.copy(isLoading = true)
 
@@ -239,35 +256,41 @@ class ChatViewModel @Inject constructor(
 
     // Mock response for testing when no API key is set
     private fun addMockResponse(userMessage: String) {
-        val currentMessages = _uiState.value.messages.toMutableList()
-        
-        // Add user message
-        currentMessages.add(ChatMessageUi(
-            text = userMessage,
-            isUser = true,
-            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date())
-        ))
-        
-        // Add mock AI response
-        val mockResponse = when {
-            userMessage.contains("你好") || userMessage.contains("hello") -> 
-                "您好！我是企业知识助手。我可以帮助您解答关于公司政策、流程和技术问题。请注意：当前为演示模式，请设置Dify API Key以获得完整功能。"
-            userMessage.contains("测试") || userMessage.contains("test") ->
-                "测试功能正常！聊天界面工作正常。要获得AI回复，请在设置中配置您的Dify API Key。"
-            else ->
-                "我收到了您的消息：\"$userMessage\"。为了提供智能回复，请在设置页面中配置您的Dify API Key。"
+        viewModelScope.launch {
+            // Ensure we have a conversation to save messages to
+            var conversationId = _uiState.value.currentConversationId
+            if (conversationId == null) {
+                conversationId = chatRepository.createConversation("新对话")
+                _uiState.value = _uiState.value.copy(currentConversationId = conversationId)
+            }
+            
+            // Save user message to database
+            chatRepository.sendMessage(
+                message = userMessage,
+                isUser = true,
+                conversationId = conversationId
+            )
+            
+            // Generate mock AI response
+            val mockResponse = when {
+                userMessage.contains("你好") || userMessage.contains("hello") -> 
+                    "您好！我是企业知识助手。我可以帮助您解答关于公司政策、流程和技术问题。请注意：当前为演示模式，请设置Dify API Key以获得完整功能。"
+                userMessage.contains("测试") || userMessage.contains("test") ->
+                    "测试功能正常！聊天界面工作正常。要获得AI回复，请在设置中配置您的Dify API Key。"
+                else ->
+                    "我收到了您的消息：\"$userMessage\"。为了提供智能回复，请在设置页面中配置您的Dify API Key。"
+            }
+            
+            // Save AI response to database
+            chatRepository.sendMessage(
+                message = mockResponse,
+                isUser = false,
+                conversationId = conversationId,
+                references = emptyList()
+            )
+            
+            // Messages will be automatically updated through the Flow from database
         }
-        
-        currentMessages.add(ChatMessageUi(
-            text = mockResponse,
-            isUser = false,
-            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date()),
-            references = "演示模式 - 请配置API Key获得真实AI回复"
-        ))
-        
-        _uiState.value = _uiState.value.copy(messages = currentMessages)
     }
 
     fun deleteConversation(conversationId: String) {

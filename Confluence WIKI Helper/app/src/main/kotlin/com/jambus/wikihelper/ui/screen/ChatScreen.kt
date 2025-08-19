@@ -55,6 +55,7 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
+    onNavigateToHistory: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -71,6 +72,18 @@ fun ChatScreen(
         // }
     }
 
+    // 初始化时加载最新会话或创建新会话
+    LaunchedEffect(Unit) {
+        if (uiState.currentConversationId == null && uiState.conversations.isNotEmpty()) {
+            // 如果有历史会话，加载最新的
+            val latestConversation = uiState.conversations.firstOrNull()
+            latestConversation?.let { viewModel.loadMessages(it.id) }
+        } else if (uiState.currentConversationId == null && uiState.conversations.isEmpty()) {
+            // 如果没有会话，创建新会话
+            viewModel.createConversation()
+        }
+    }
+
     // 自动滚动到底部
     LaunchedEffect(uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
@@ -82,7 +95,7 @@ fun ChatScreen(
         Scaffold(
             topBar = {
                 ChatTopBar(
-                    onHistoryClick = { /* TODO: 历史记录 */ },
+                    onHistoryClick = onNavigateToHistory,
                     onKnowledgeSearchClick = { showKnowledgeSheet = true }
                 )
             }

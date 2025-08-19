@@ -47,11 +47,14 @@ class DifyRepository @Inject constructor(
                     NetworkResult.Success(response.body()!!)
                 } else {
                     val errorBody = response.errorBody()?.string()
+                    android.util.Log.e("DifyRepository", "API Error - Code: ${response.code()}, Message: ${response.message()}")
+                    android.util.Log.e("DifyRepository", "Error Body: $errorBody")
+                    
                     val errorMessage = try {
                         val errorJson = JSONObject(errorBody ?: "")
                         errorJson.optString("message", "Unknown error")
                     } catch (e: Exception) {
-                        "API Error: ${response.code()} - ${response.message()}"
+                        "API Error: ${response.code()} - ${response.message()}\nURL: ${response.raw().request.url}"
                     }
                     NetworkResult.Error(errorMessage)
                 }
