@@ -7,7 +7,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
+import okio.Buffer
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import javax.inject.Singleton
@@ -50,6 +52,18 @@ object NetworkModule {
                 android.util.Log.d("DifyAPI", "Request URL: ${request.url}")
                 android.util.Log.d("DifyAPI", "Request method: ${request.method}")
                 
+                // 打印请求体内容
+                request.body?.let { body ->
+                    try {
+                        val buffer = Buffer()
+                        body.writeTo(buffer)
+                        val requestBodyString = buffer.readUtf8()
+                        android.util.Log.d("DifyAPI", "Request body: $requestBodyString")
+                    } catch (e: Exception) {
+                        android.util.Log.w("DifyAPI", "Failed to read request body: ${e.message}")
+                    }
+                } ?: android.util.Log.d("DifyAPI", "Request body: null")
+                
                 // 专门检查Authorization头
                 val authHeaderValue = request.header("Authorization")
                 if (authHeaderValue != null) {
@@ -67,9 +81,29 @@ object NetworkModule {
                 
                 val response = chain.proceed(request)
                 android.util.Log.d("DifyAPI", "Response code: ${response.code}")
+                
                 if (!response.isSuccessful) {
                     android.util.Log.e("DifyAPI", "Response error: ${response.message}")
+                    
+                    // 打印错误响应体
+                    response.body?.let { responseBody ->
+                        try {
+                            val responseBodyString = responseBody.string()
+                            android.util.Log.e("DifyAPI", "Error response body: $responseBodyString")
+                            
+                            // 重新创建响应体，因为string()会消费掉内容
+                            val newResponseBody = responseBodyString.toResponseBody(responseBody.contentType())
+                            return@addInterceptor response.newBuilder()
+                                .body(newResponseBody)
+                                .build()
+                        } catch (e: Exception) {
+                            android.util.Log.w("DifyAPI", "Failed to read error response body: ${e.message}")
+                        }
+                    }
+                } else {
+                    android.util.Log.d("DifyAPI", "✓ Request successful")
                 }
+                
                 response
             }
             .build()
