@@ -7,9 +7,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -21,6 +23,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.jambus.wikihelper.ui.viewmodel.ChatViewModel
 import com.jambus.wikihelper.ui.theme.ThemeManager
 import com.jambus.wikihelper.ui.theme.LocalThemeManager
+import com.jambus.wikihelper.ui.theme.PrimaryBlue
+import com.jambus.wikihelper.ui.theme.TextSecondary
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Chat : Screen("chat", "Chat", Icons.Filled.Email)
@@ -205,6 +209,10 @@ fun KnowledgeScreen() {
 @Composable
 fun SettingsScreen() {
     val themeManager = LocalThemeManager.current
+    val viewModel: ChatViewModel = hiltViewModel()
+    val uiState by viewModel.uiState.collectAsState()
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    
     val isDarkTheme = if (themeManager != null) {
         val isDark by themeManager.isDarkTheme.collectAsState()
         isDark
@@ -270,12 +278,21 @@ fun SettingsScreen() {
                 
                 // API Key setting
                 OutlinedButton(
-                    onClick = { /* TODO: Show API key dialog */ },
+                    onClick = { showApiKeyDialog = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Filled.Settings, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Configure API Key")
+                    Spacer(modifier = Modifier.weight(1f))
+                    // Show current API key status
+                    if (uiState.isApiKeySet) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "API Key configured",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -290,6 +307,17 @@ fun SettingsScreen() {
                     Text("About")
                 }
             }
+        }
+        
+        // API Key设置对话框
+        if (showApiKeyDialog) {
+            ApiKeyDialog(
+                onDismiss = { showApiKeyDialog = false },
+                onConfirm = { apiKey ->
+                    viewModel.setApiKey(apiKey)
+                    showApiKeyDialog = false
+                }
+            )
         }
     }
 }
