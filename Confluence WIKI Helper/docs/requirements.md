@@ -147,7 +147,7 @@ curl -X POST 'http://123.60.144.244/v1/chat-messages' \
     "query": "What is webpos?",
     "response_mode": "streaming",
     "conversation_id": "",
-    "user": "abc-123",
+    "user": "wiki_chat_app",
     "files": [
       {
         "type": "image",

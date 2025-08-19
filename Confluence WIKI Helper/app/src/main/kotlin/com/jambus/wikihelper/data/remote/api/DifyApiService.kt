@@ -12,14 +12,12 @@ interface DifyApiService {
     @Headers("Content-Type: application/json")
     @POST("v1/chat-messages")
     suspend fun sendChatMessage(
-        @Header("Authorization") authToken: String,
         @Body request: DifyChatRequest
     ): Response<DifyChatResponse>
 
     @Headers("Content-Type: application/json")
     @POST("v1/completion-messages")
     suspend fun sendCompletionMessage(
-        @Header("Authorization") authToken: String,
         @Body request: DifyCompletionRequest
     ): Response<DifyChatResponse>
 
@@ -27,7 +25,6 @@ interface DifyApiService {
     @Streaming
     @POST("v1/chat-messages")
     suspend fun sendChatMessageStream(
-        @Header("Authorization") authToken: String,
         @Body request: DifyChatRequest
     ): ResponseBody
 }

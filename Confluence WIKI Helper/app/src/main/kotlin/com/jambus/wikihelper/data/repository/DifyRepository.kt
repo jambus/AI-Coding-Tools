@@ -17,7 +17,7 @@ class DifyRepository @Inject constructor(
 ) {
 
     companion object {
-        private const val DEFAULT_USER_ID = "abc-123" // 根据requirements.md设置默认用户ID
+        private const val DEFAULT_USER_ID = "wiki_chat_app" // 根据requirements.md设置默认用户ID
     }
 
     suspend fun sendChatMessage(
@@ -39,7 +39,6 @@ class DifyRepository @Inject constructor(
                 )
                 
                 val response = apiService.sendChatMessage(
-                    authToken = "Bearer $apiKey",
                     request = request
                 )
                 
@@ -81,7 +80,6 @@ class DifyRepository @Inject constructor(
             )
             
             val responseBody = apiService.sendChatMessageStream(
-                authToken = "Bearer $apiKey",
                 request = request
             )
             
@@ -170,7 +168,6 @@ class DifyRepository @Inject constructor(
                 )
                 
                 val response = apiService.sendCompletionMessage(
-                    authToken = "Bearer $apiKey",
                     request = request
                 )
                 
