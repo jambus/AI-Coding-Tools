@@ -5,6 +5,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +27,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jambus.wikihelper.ui.theme.*
 import com.jambus.wikihelper.ui.viewmodel.ChatViewModel
+import com.jambus.wikihelper.ui.component.FileUploadDialog
+import com.jambus.wikihelper.ui.component.VoiceInputButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -246,6 +249,7 @@ fun InputBar(
 ) {
     var message by remember { mutableStateOf("") }
     var attachments by remember { mutableStateOf(listOf<String>()) }
+    var showFileUploadDialog by remember { mutableStateOf(false) }
     
     Card(
         modifier = Modifier
@@ -259,17 +263,22 @@ fun InputBar(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { /* TODO: 语音输入 */ }) {
-                Icon(
-                    imageVector = Icons.Default.Phone,
-                    contentDescription = "语音输入"
-                )
-            }
+            // 语音输入按钮
+            VoiceInputButton(
+                onVoiceResult = { voiceText ->
+                    message = voiceText
+                },
+                modifier = Modifier.padding(end = 4.dp)
+            )
             
-            IconButton(onClick = { /* TODO: 附件上传 */ }) {
+            // 文件上传按钮
+            IconButton(
+                onClick = { showFileUploadDialog = true }
+            ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "附件上传"
+                    contentDescription = "Upload file",
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
             
@@ -305,7 +314,68 @@ fun InputBar(
                 )
             }
         }
+        
+        // Display selected files
+        if (attachments.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(attachments) { attachment ->
+                    FileChip(
+                        fileName = attachment,
+                        onRemove = {
+                            attachments = attachments.filter { it != attachment }
+                        }
+                    )
+                }
+            }
+        }
     }
+    
+    // File upload dialog
+    if (showFileUploadDialog) {
+        FileUploadDialog(
+            onDismiss = { showFileUploadDialog = false },
+            onFileSelected = { uri ->
+                // Extract filename from URI and add to attachments
+                val fileName = uri.lastPathSegment ?: "Unknown file"
+                attachments = attachments + fileName
+            }
+        )
+    }
+}
+
+@Composable
+private fun FileChip(
+    fileName: String,
+    onRemove: () -> Unit
+) {
+    InputChip(
+        onClick = { },
+        label = {
+            Text(
+                text = fileName,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1
+            )
+        },
+        selected = false,
+        trailingIcon = {
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove file",
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
+    )
 }
 
 // 改进的TopBar组件

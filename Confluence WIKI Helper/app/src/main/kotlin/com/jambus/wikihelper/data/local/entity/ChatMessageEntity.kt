@@ -15,13 +15,3 @@ data class ChatMessageEntity(
     val messageId: String? = null,
     val references: String? = null // JSON string for references
 )
-
-@Entity(tableName = "conversations")
-data class ConversationEntity(
-    @PrimaryKey
-    val id: String,
-    val title: String,
-    val createdAt: Date = Date(),
-    val updatedAt: Date = Date(),
-    val lastMessage: String? = null
-)

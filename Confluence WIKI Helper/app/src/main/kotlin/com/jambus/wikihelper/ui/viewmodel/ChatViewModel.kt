@@ -23,6 +23,7 @@ class ChatViewModel @Inject constructor(
 
     data class ChatUiState(
         val messages: List<ChatMessageUi> = emptyList(),
+        val conversations: List<ConversationUi> = emptyList(),
         val isLoading: Boolean = false,
         val error: String? = null,
         val currentConversationId: String? = null,
@@ -35,6 +36,13 @@ class ChatViewModel @Inject constructor(
         val isUser: Boolean,
         val timestamp: String,
         val references: String? = null
+    )
+
+    data class ConversationUi(
+        val id: String,
+        val title: String,
+        val lastMessage: String?,
+        val updatedAt: java.util.Date
     )
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -58,7 +66,16 @@ class ChatViewModel @Inject constructor(
     fun loadConversations() {
         viewModelScope.launch {
             chatRepository.getAllConversations().collectLatest { conversations ->
-                // Handle conversation updates
+                _uiState.value = _uiState.value.copy(
+                    conversations = conversations.map { conv ->
+                        ConversationUi(
+                            id = conv.id,
+                            title = conv.title,
+                            lastMessage = conv.lastMessage,
+                            updatedAt = conv.updatedAt
+                        )
+                    }
+                )
             }
         }
     }
