@@ -181,4 +181,68 @@ class DifyRepository @Inject constructor(
             }
         }
     }
+
+    suspend fun streamChatMessage(
+        message: String,
+        conversationId: String?,
+        onConversationIdReceived: ((String) -> Unit)? = null
+    ): Flow<String> = flow {
+        try {
+            // 对于新对话，不传递conversation_id；对于已有对话，验证ID格式
+            val validConversationId = if (conversationId.isNullOrBlank()) {
+                null  // 新对话
+            } else {
+                conversationId  // 使用现有对话ID
+            }
+            
+            android.util.Log.d("DifyRepository", "Sending stream chat message with conversation_id: $validConversationId")
+            
+            val request = DifyChatRequest(
+                query = message,
+                user = "default_user",
+                conversation_id = validConversationId,
+                response_mode = "streaming",
+                files = null
+            )
+            
+            val responseBody = apiService.sendChatMessageStream(
+                request = request
+            )
+            
+            responseBody.source().use { source ->
+                val reader = BufferedReader(source.inputStream().reader())
+                var line: String?
+                
+                while (reader.readLine().also { line = it } != null) {
+                    line?.let { currentLine ->
+                        if (currentLine.startsWith("data: ")) {
+                            val jsonData = currentLine.substring(6).trim()
+                            if (jsonData != "[DONE]" && jsonData.isNotEmpty()) {
+                                try {
+                                    val streamData = parseStreamResponse(jsonData)
+                                    // 如果是消息事件，提取答案文本
+                                    if (streamData.event == "message") {
+                                        streamData.answer?.let { answer ->
+                                            emit(answer)
+                                        }
+                                    }
+                                    // 如果是message_end事件，保存conversation_id
+                                    if (streamData.event == "message_end") {
+                                        streamData.conversation_id?.let { cid ->
+                                            android.util.Log.d("DifyRepository", "Received Dify conversation_id: $cid")
+                                            onConversationIdReceived?.invoke(cid)
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("DifyRepository", "Stream parsing error: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("DifyRepository", "Stream error: ${e.message}")
+        }
+    }
 }

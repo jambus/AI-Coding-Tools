@@ -26,7 +26,8 @@ class ChatViewModel @Inject constructor(
         val conversations: List<ConversationUi> = emptyList(),
         val isLoading: Boolean = false,
         val error: String? = null,
-        val currentConversationId: String? = null,
+        val currentConversationId: String? = null,  // 本地数据库conversation ID
+        val difyConversationId: String? = null,     // Dify API conversation ID
         val isApiKeySet: Boolean = false
     )
 
@@ -89,26 +90,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun loadMessages(conversationId: String?) {
-        viewModelScope.launch {
-            chatRepository.getChatMessages(conversationId).collectLatest { messages ->
-                _uiState.value = _uiState.value.copy(
-                    messages = messages.map { msg ->
-                        ChatMessageUi(
-                            id = msg.id,
-                            text = msg.message,
-                            isUser = msg.isUser,
-                            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                                .format(msg.timestamp),
-                            references = msg.references
-                        )
-                    },
-                    currentConversationId = conversationId
-                )
-            }
-        }
-    }
-
     fun createConversation(title: String = "新对话") {
         viewModelScope.launch {
             val conversationId = chatRepository.createConversation(title)
@@ -137,121 +118,104 @@ class ChatViewModel @Inject constructor(
 
             _uiState.value = _uiState.value.copy(isLoading = true)
 
-            // 将文件转换为DifyFile格式（如果有）
-            val difyFiles = files.map { fileUrl ->
-                com.jambus.wikihelper.data.remote.model.DifyFile(
-                    type = "image", // 根据文件类型判断
-                    transfer_method = "remote_url",
-                    url = fileUrl
-                )
-            }.takeIf { it.isNotEmpty() }
-
             try {
                 // 使用流式响应
                 var fullResponse = ""
-                var currentConversationId = _uiState.value.currentConversationId
-                var messageId: String? = null
-                var retrieverResources: List<com.jambus.wikihelper.data.remote.model.DifyRetrieverResource>? = null
 
-                difyRepository.sendChatMessageStream(
-                    apiKey = apiKey,
-                    query = message,
-                    conversationId = currentConversationId,
-                    files = difyFiles
-                ).collect { result ->
-                    when (result) {
-                        is com.jambus.wikihelper.utils.NetworkResult.Success -> {
-                            val streamData = result.data
-                            
-                            when (streamData.event) {
-                                "message" -> {
-                                    // 累积回答内容
-                                    streamData.answer?.let { answer ->
-                                        fullResponse += answer
-                                        
-                                        // 实时更新UI显示（支持打字机效果）
-                                        val currentMessages = _uiState.value.messages.toMutableList()
-                                        val aiMessageIndex = currentMessages.indexOfLast { !it.isUser }
-                                        
-                                        if (aiMessageIndex >= 0) {
-                                            // 更新现有AI消息
-                                            currentMessages[aiMessageIndex] = currentMessages[aiMessageIndex].copy(
-                                                text = fullResponse
-                                            )
-                                        } else {
-                                            // 添加新的AI消息
-                                            currentMessages.add(ChatMessageUi(
-                                                text = fullResponse,
-                                                isUser = false,
-                                                timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                                                    .format(java.util.Date()),
-                                                references = retrieverResources?.joinToString("\n") { resource ->
-                                                    "${resource.document_name}: ${resource.content}"
-                                                }
-                                            ))
-                                        }
-                                        
-                                        _uiState.value = _uiState.value.copy(
-                                            messages = currentMessages,
-                                            isLoading = true // 仍在加载中
-                                        )
-                                    }
-                                }
-                                "message_end" -> {
-                                    // 消息结束
-                                    currentConversationId = streamData.conversation_id ?: currentConversationId
-                                    messageId = streamData.message_id
-                                    
-                                    // 提取知识来源
-                                    streamData.metadata?.retriever_resources?.let { resources ->
-                                        retrieverResources = resources
-                                    }
-                                    
-                                    // 保存完整的AI回答到数据库
-                                    chatRepository.sendMessage(
-                                        message = fullResponse,
-                                        isUser = false,
-                                        conversationId = currentConversationId,
-                                        messageId = messageId,
-                                        references = retrieverResources
-                                    )
-                                    
-                                    _uiState.value = _uiState.value.copy(
-                                        isLoading = false,
-                                        error = null,
-                                        currentConversationId = currentConversationId
-                                    )
-                                }
-                                "error" -> {
-                                    _uiState.value = _uiState.value.copy(
-                                        isLoading = false,
-                                        error = "AI回答出错，请重试"
-                                    )
-                                }
-                            }
-                        }
-                        is com.jambus.wikihelper.utils.NetworkResult.Error -> {
-                            _uiState.value = _uiState.value.copy(
-                                isLoading = false,
-                                error = result.message
-                            )
-                        }
-                        is com.jambus.wikihelper.utils.NetworkResult.Loading -> {
-                            // 处理加载状态
+                difyRepository.streamChatMessage(
+                    message = message,
+                    conversationId = _uiState.value.difyConversationId,  // 使用Dify的conversation ID
+                    onConversationIdReceived = { difyConversationId ->
+                        // 如果是新对话，保存Dify返回的conversation_id
+                        if (_uiState.value.difyConversationId == null) {
+                            _uiState.value = _uiState.value.copy(difyConversationId = difyConversationId)
+                            android.util.Log.d("ChatViewModel", "Saved Dify conversation_id: $difyConversationId")
                         }
                     }
+                ).collect { streamResponse ->
+                    // 直接处理字符串响应
+                    fullResponse += streamResponse
+                    
+                    // 实时更新UI显示（支持打字机效果）
+                    val currentMessages = _uiState.value.messages.toMutableList()
+                    val aiMessageIndex = currentMessages.indexOfLast { !it.isUser }
+                    
+                    if (aiMessageIndex >= 0) {
+                        // 更新现有AI消息
+                        currentMessages[aiMessageIndex] = currentMessages[aiMessageIndex].copy(
+                            text = fullResponse
+                        )
+                    } else {
+                        // 添加新的AI消息
+                        currentMessages.add(ChatMessageUi(
+                            text = fullResponse,
+                            isUser = false,
+                            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date())
+                        ))
+                    }
+                    
+                    _uiState.value = _uiState.value.copy(
+                        messages = currentMessages,
+                        isLoading = true // 仍在加载中
+                    )
                 }
+                
+                // 流结束后保存完整的AI回答到数据库
+                chatRepository.sendMessage(
+                    message = fullResponse,
+                    isUser = false,
+                    conversationId = conversationId
+                )
+                
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = null
+                )
+                
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "发送消息失败: ${e.message}"
                 )
+                android.util.Log.e("ChatViewModel", "Send message error", e)
             }
         }
     }
 
     fun clearError() {
-                _uiState.value = _uiState.value.copy(error = null)
+        _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    fun createNewConversation() {
+        viewModelScope.launch {
+            val conversationId = chatRepository.createConversation("新对话")
+            _uiState.value = _uiState.value.copy(
+                currentConversationId = conversationId,
+                difyConversationId = null, // 重置Dify conversation ID
+                messages = emptyList()
+            )
+        }
+    }
+
+    fun loadMessages(conversationId: String?) {
+        viewModelScope.launch {
+            chatRepository.getChatMessages(conversationId).collectLatest { messages ->
+                _uiState.value = _uiState.value.copy(
+                    messages = messages.map { msg ->
+                        ChatMessageUi(
+                            id = msg.id,
+                            text = msg.message,
+                            isUser = msg.isUser,
+                            timestamp = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                .format(msg.timestamp),
+                            references = msg.references
+                        )
+                    },
+                    currentConversationId = conversationId
+                )
+            }
+        }
     }
 
     // Mock response for testing when no API key is set
@@ -296,6 +260,13 @@ class ChatViewModel @Inject constructor(
     fun deleteConversation(conversationId: String) {
         viewModelScope.launch {
             chatRepository.deleteConversation(conversationId)
+            if (_uiState.value.currentConversationId == conversationId) {
+                _uiState.value = _uiState.value.copy(
+                    currentConversationId = null,
+                    difyConversationId = null,
+                    messages = emptyList()
+                )
+            }
         }
     }
 }
